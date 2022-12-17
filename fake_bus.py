@@ -1,42 +1,41 @@
 import json
+import os
 import sys
 
 import trio
 from trio_websocket import open_websocket_url
 
 
-async def load_route(route_path):
-    route = ''
-    async with await trio.open_file(
-        route_path,
-        mode='r',
-        encoding='UTF-8'
-    ) as file:
-        async for line in file:
-            route += line
-    return json.loads(route)
+def load_routes(directory_path='routes'):
+    for filename in os.listdir(directory_path):
+        if filename.endswith(".json"):
+            filepath = os.path.join(directory_path, filename)
+            with open(filepath, 'r', encoding='utf8') as file:
+                yield json.load(file)
+
+
+async def run_bus(url, bus_id, route):
+    async with open_websocket_url(url) as ws:
+        for latitude, longitude in route['coordinates']:
+            output_message = {
+                'busId': bus_id,
+                'lat': latitude,
+                'lng': longitude,
+                'route': bus_id
+            }
+            output_message = json.dumps(output_message, ensure_ascii=False)
+
+            await ws.send_message(output_message)
+            await trio.sleep(3)
 
 
 async def main():
-    route_path = 'routes/156.json'
-    route = await load_route(route_path)
-
-    route_name = route['name']
-    bus_id = 'c790сс'
+    directory_path = 'routes'
+    url = 'ws://127.0.0.1:8080/'
     try:
-        async with open_websocket_url('ws://127.0.0.1:8080/') as ws:
-            for latitude, longitude in route['coordinates']:
-                output_message = {
-                    'busId': bus_id,
-                    'lat': latitude,
-                    'lng': longitude,
-                    'route': route_name
-                }
-                output_message = json.dumps(output_message, ensure_ascii=False)
-
-                await ws.send_message(output_message)
-                await trio.sleep(1)
-
+        async with trio.open_nursery() as nursery:
+            for route in load_routes(directory_path):
+                nursery.start_soon(run_bus, url, route['name'], route)
     except OSError as ose:
         print(f'Connection attempt failed: {ose}', file=sys.stderr)
 
