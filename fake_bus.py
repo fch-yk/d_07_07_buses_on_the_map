@@ -20,29 +20,47 @@ def generate_bus_id(route_id, bus_index):
     return f"{route_id}-{bus_index}"
 
 
-async def run_bus(url, bus_id, route_name, coordinates):
-    async with open_websocket_url(url) as ws:
-        while True:
-            for latitude, longitude in coordinates:
-                output_message = {
-                    'busId': bus_id,
-                    'lat': latitude,
-                    'lng': longitude,
-                    'route': route_name
-                }
-                output_message = json.dumps(output_message, ensure_ascii=False)
+async def send_updates(server_address, receive_channel):
+    async with open_websocket_url(server_address) as ws:
+        async for output_message in receive_channel:
+            await ws.send_message(output_message)
 
-                await ws.send_message(output_message)
-                await trio.sleep(0.1)
+
+async def run_bus(send_channel, bus_id, route_name, coordinates, pause):
+    while True:
+        for latitude, longitude in coordinates:
+            output_message = {
+                'busId': bus_id,
+                'lat': latitude,
+                'lng': longitude,
+                'route': route_name
+            }
+            output_message = json.dumps(output_message, ensure_ascii=False)
+
+            await send_channel.send(output_message)
+            await trio.sleep(pause)
 
 
 async def main():
+    pause = 0.1
     directory_path = 'routes'
-    url = 'ws://127.0.0.1:8080/'
-    min_per_route = 3
-    max_per_route = 10
+    server_address = 'ws://127.0.0.1:8080/'
+    min_per_route = 34
+    max_per_route = 36
+    channels_number = 5
+    channels = []
     try:
         async with trio.open_nursery() as nursery:
+            for _ in range(channels_number):
+                channels.append(trio.open_memory_channel(0))
+
+            for _, receive_channel in channels:
+                nursery.start_soon(
+                    send_updates,
+                    server_address,
+                    receive_channel
+                )
+
             for route in load_routes(directory_path):
                 basic_coordinates = route['coordinates']
                 per_route = random.randint(min_per_route, max_per_route)
@@ -59,10 +77,11 @@ async def main():
 
                     nursery.start_soon(
                         run_bus,
-                        url,
+                        random.choice(channels)[0],
                         bus_id,
                         route['name'],
-                        coordinates
+                        coordinates,
+                        pause,
                     )
     except OSError as ose:
         print(f'Connection attempt failed: {ose}', file=sys.stderr)
