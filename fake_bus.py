@@ -1,11 +1,19 @@
+import contextlib
+import itertools
 import json
+import logging
 import os
 import random
 import sys
-import itertools
+import warnings
+import uuid
 
+import asyncclick as click
 import trio
+from trio import TrioDeprecationWarning
 from trio_websocket import open_websocket_url
+
+logger = logging.getLogger(__file__)
 
 
 def load_routes(directory_path='routes'):
@@ -16,17 +24,23 @@ def load_routes(directory_path='routes'):
                 yield json.load(file)
 
 
-def generate_bus_id(route_id, bus_index):
-    return f"{route_id}-{bus_index}"
+def generate_bus_id(route_id, bus_index, emulator_id):
+    return f"{emulator_id}-{route_id}-{bus_index}"
 
 
-async def send_updates(server_address, receive_channel):
-    async with open_websocket_url(server_address) as ws:
+async def send_updates(server, receive_channel):
+    async with open_websocket_url(server) as ws:
         async for output_message in receive_channel:
             await ws.send_message(output_message)
 
 
-async def run_bus(send_channel, bus_id, route_name, coordinates, pause):
+async def run_bus(
+    send_channel,
+    bus_id,
+    route_name,
+    coordinates,
+    refresh_timeout
+):
     while True:
         for latitude, longitude in coordinates:
             output_message = {
@@ -38,34 +52,43 @@ async def run_bus(send_channel, bus_id, route_name, coordinates, pause):
             output_message = json.dumps(output_message, ensure_ascii=False)
 
             await send_channel.send(output_message)
-            await trio.sleep(pause)
+            await trio.sleep(refresh_timeout)
 
 
-async def main():
-    pause = 0.1
-    directory_path = 'routes'
-    server_address = 'ws://127.0.0.1:8080/'
-    min_per_route = 34
-    max_per_route = 36
-    channels_number = 5
-    channels = []
+async def fake_buses(
+    server,
+    routes_number,
+    buses_per_route,
+    websockets_number,
+    emulator_id,
+    refresh_timeout
+):
+    directory_path = 'routes1'
+    websockets = []
     try:
         async with trio.open_nursery() as nursery:
-            for _ in range(channels_number):
-                channels.append(trio.open_memory_channel(0))
+            for _ in range(websockets_number):
+                websockets.append(trio.open_memory_channel(0))
 
-            for _, receive_channel in channels:
+            for _, receive_channel in websockets:
                 nursery.start_soon(
                     send_updates,
-                    server_address,
+                    server,
                     receive_channel
                 )
 
-            for route in load_routes(directory_path):
+            for run_routes_number, route in enumerate(
+                load_routes(directory_path),
+                start=1
+            ):
                 basic_coordinates = route['coordinates']
-                per_route = random.randint(min_per_route, max_per_route)
-                for bus_index in range(per_route):
-                    bus_id = generate_bus_id(route['name'], bus_index)
+
+                for bus_index in range(buses_per_route):
+                    bus_id = generate_bus_id(
+                        route['name'],
+                        bus_index,
+                        emulator_id
+                    )
                     start_location = random.randint(
                         0,
                         len(basic_coordinates) - 1
@@ -77,14 +100,92 @@ async def main():
 
                     nursery.start_soon(
                         run_bus,
-                        random.choice(channels)[0],
+                        random.choice(websockets)[0],
                         bus_id,
                         route['name'],
                         coordinates,
-                        pause,
+                        refresh_timeout,
                     )
+                logger.info(f'Run route: {route["name"]}')
+                if routes_number and run_routes_number == routes_number:
+                    break
+            logger.info(f'Run routes number: {run_routes_number}')
     except OSError as ose:
         print(f'Connection attempt failed: {ose}', file=sys.stderr)
 
+
+@click.command()
+@click.option(
+    '-s',
+    '--server',
+    default='ws://127.0.0.1:8080/',
+    help='Server address, default: ws: // 127.0.0.1: 8080 /'
+)
+@click.option(
+    '-rn',
+    '--routes_number',
+    type=click.INT,
+    default=0,
+    help='Number of routes, default: all (zero also means all)'
+)
+@click.option(
+    '-bpr',
+    '--buses_per_route',
+    type=click.INT,
+    default=5,
+    help='Number of buses per route, default: 5'
+)
+@click.option(
+    '-bpr',
+    '--websockets_number',
+    type=click.INT,
+    default=5,
+    help='Number of opened websockets, default: 5'
+)
+@click.option(
+    '-eid',
+    '--emulator_id',
+    default=uuid.uuid4(),
+    help='Emulator ID (it is used as a prefix for bus IDs in order to support '
+    'running multiple instances of the script, default: a random UUID)'
+)
+@click.option(
+    '-rt',
+    '--refresh_timeout',
+    type=click.FLOAT,
+    default=1,
+    help='Refresh timeout, default: 1'
+)
+@click.option(
+    '-v/-nov',
+    '--verbose/--no_verbose',
+    default=False,
+    help='Verbose mode (logging), default: off'
+)
+async def main(
+    server,
+    routes_number,
+    buses_per_route,
+    websockets_number,
+    emulator_id,
+    refresh_timeout,
+    verbose
+):
+    '''This script fakes buses'''
+    if verbose:
+        logging.basicConfig()
+        logger.setLevel(logging.INFO)
+    with contextlib.suppress(KeyboardInterrupt):
+        await fake_buses(
+            server,
+            routes_number,
+            buses_per_route,
+            websockets_number,
+            emulator_id,
+            refresh_timeout,
+        )
+
+
 if __name__ == '__main__':
-    trio.run(main)
+    warnings.filterwarnings(action='ignore', category=TrioDeprecationWarning)
+    main(_anyio_backend="trio")

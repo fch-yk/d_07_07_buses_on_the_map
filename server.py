@@ -1,8 +1,11 @@
+import contextlib
 import functools
 import json
 import logging
+import warnings
 
 import trio
+from trio import TrioDeprecationWarning
 from trio_websocket import ConnectionClosed, serve_websocket
 
 logger = logging.getLogger(__file__)
@@ -61,4 +64,6 @@ async def main():
 
 
 if __name__ == '__main__':
-    trio.run(main)
+    warnings.filterwarnings(action='ignore', category=TrioDeprecationWarning)
+    with contextlib.suppress(KeyboardInterrupt):
+        trio.run(main)
