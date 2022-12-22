@@ -39,7 +39,8 @@ def reconnect(connect_func):
                 trio_websocket._impl.HandshakeError,
                 trio_websocket._impl.ConnectionClosed,
             ):
-                logger.info('Failed to connect to the server. Reconnecting...')
+                logger.debug(
+                    'Failed to connect to the server. Reconnecting...')
                 await trio.sleep(3)
     return wrap
 
@@ -47,7 +48,7 @@ def reconnect(connect_func):
 @reconnect
 async def send_updates(server, receive_channel):
     async with trio_websocket.open_websocket_url(server) as ws:
-        logger.info('Connected to the server. Sending messages...')
+        logger.debug('Connected to the server. Sending messages...')
         async for output_message in receive_channel:
             await ws.send_message(output_message)
 
@@ -124,10 +125,10 @@ async def fake_buses(
                         coordinates,
                         refresh_timeout,
                     )
-                logger.info(f'Run route: {route["name"]}')
+                logger.debug(f'Run route: {route["name"]}')
                 if routes_number and run_routes_number == routes_number:
                     break
-            logger.info(f'Run routes number: {run_routes_number}')
+            logger.debug(f'Run routes number: {run_routes_number}')
     except OSError as ose:
         print(f'Connection attempt failed: {ose}', file=sys.stderr)
 
@@ -192,7 +193,7 @@ async def main(
     '''This script fakes buses'''
     if verbose:
         logging.basicConfig()
-        logger.setLevel(logging.INFO)
+        logger.setLevel(logging.DEBUG)
     with contextlib.suppress(KeyboardInterrupt):
         await fake_buses(
             server,

@@ -19,7 +19,7 @@ async def talk_to_bus(request):
             message = await ws.get_message()
             message = json.loads(message)
             buses[message['busId']] = message
-            logger.info('from buses %s', message)
+            logger.debug('from buses %s', message)
         except ConnectionClosed:
             break
 
@@ -40,9 +40,19 @@ async def talk_to_browser(request):
             break
 
 
+async def listen_to_browser(request):
+    ws = await request.accept()
+    while True:
+        try:
+            input_message = await ws.get_message()
+            logger.debug(input_message)
+        except ConnectionClosed:
+            break
+
+
 async def main():
     logging.basicConfig()
-    logger.setLevel(logging.INFO)
+    logger.setLevel(logging.DEBUG)
     bus_ws_handler = functools.partial(
         serve_websocket,
         handler=talk_to_bus,
@@ -50,7 +60,7 @@ async def main():
         port=8080,
         ssl_context=None
     )
-    browser_ws_handler = functools.partial(
+    output_browser_ws_handler = functools.partial(
         serve_websocket,
         handler=talk_to_browser,
         host='127.0.0.1',
@@ -58,9 +68,18 @@ async def main():
         ssl_context=None
     )
 
+    input_browser_ws_handler = functools.partial(
+        serve_websocket,
+        handler=listen_to_browser,
+        host='127.0.0.1',
+        port=8000,
+        ssl_context=None
+    )
+
     async with trio.open_nursery() as nursery:
         nursery.start_soon(bus_ws_handler)
-        nursery.start_soon(browser_ws_handler)
+        nursery.start_soon(output_browser_ws_handler)
+        nursery.start_soon(input_browser_ws_handler)
 
 
 if __name__ == '__main__':
