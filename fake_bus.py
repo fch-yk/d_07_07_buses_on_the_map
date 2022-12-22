@@ -1,17 +1,18 @@
 import contextlib
+import functools
 import itertools
 import json
 import logging
 import os
 import random
 import sys
-import warnings
 import uuid
+import warnings
 
 import asyncclick as click
 import trio
+import trio_websocket
 from trio import TrioDeprecationWarning
-from trio_websocket import open_websocket_url
 
 logger = logging.getLogger(__file__)
 
@@ -28,8 +29,25 @@ def generate_bus_id(route_id, bus_index, emulator_id):
     return f"{emulator_id}-{route_id}-{bus_index}"
 
 
+def reconnect(connect_func):
+    @functools.wraps(connect_func)
+    async def wrap(*args, **kwargs):
+        while True:
+            try:
+                await connect_func(*args, **kwargs)
+            except (
+                trio_websocket._impl.HandshakeError,
+                trio_websocket._impl.ConnectionClosed,
+            ):
+                logger.info('Failed to connect to the server. Reconnecting...')
+                await trio.sleep(3)
+    return wrap
+
+
+@reconnect
 async def send_updates(server, receive_channel):
-    async with open_websocket_url(server) as ws:
+    async with trio_websocket.open_websocket_url(server) as ws:
+        logger.info('Connected to the server. Sending messages...')
         async for output_message in receive_channel:
             await ws.send_message(output_message)
 
