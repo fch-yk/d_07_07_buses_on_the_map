@@ -17,7 +17,7 @@ def is_inside(bounds, lat, lng):
             bounds['west_lng'] <= lng <= bounds['east_lng'])
 
 
-async def talk_to_bus(request):
+async def listen_to_bus(request):
     ws = await request.accept()
     while True:
         try:
@@ -28,32 +28,33 @@ async def talk_to_bus(request):
             break
 
 
+async def send_buses(ws, bounds):
+    buses_inside_bounds = [
+        bus for bus in buses.values() if is_inside(
+            bounds,
+            bus['lat'],
+            bus['lng']
+        )
+    ]
+    logger.debug('buses inside bounds: %s', len(buses_inside_bounds))
+    output_message = {
+        'msgType': 'Buses',
+        'buses': buses_inside_bounds
+    }
+    output_message = json.dumps(output_message, ensure_ascii=False)
+    await ws.send_message(output_message)
+
+
 async def talk_to_browser(ws, bounds):
     while True:
         try:
-            buses_to_send = [
-                bus for bus in buses.values()
-            ]
-            buses_inside_bounds = [
-                bus for bus in buses_to_send if is_inside(
-                    bounds,
-                    bus['lat'],
-                    bus['lng']
-                )
-            ]
-            logger.debug('%s buses inside bounds', len(buses_inside_bounds))
-            output_message = {
-                'msgType': 'Buses',
-                'buses': buses_to_send
-            }
-            output_message = json.dumps(output_message, ensure_ascii=False)
-            await ws.send_message(output_message)
+            await send_buses(ws, bounds)
             await trio.sleep(3)
         except ConnectionClosed:
             break
 
 
-async def listen_browser(ws, bounds):
+async def listen_to_browser(ws, bounds):
     while True:
         try:
             input_message = await ws.get_message()
@@ -61,6 +62,7 @@ async def listen_browser(ws, bounds):
             for key in received_bounds:
                 bounds[key] = received_bounds[key]
             logger.debug(bounds)
+            await send_buses(ws, bounds)
         except ConnectionClosed:
             break
 
@@ -74,8 +76,8 @@ async def communicate_with_browser(request):
     }
     ws = await request.accept()
     async with trio.open_nursery() as nursery:
-        nursery.start_soon(talk_to_browser, ws, bounds)
-        nursery.start_soon(listen_browser, ws, bounds)
+        # nursery.start_soon(talk_to_browser, ws, bounds)
+        nursery.start_soon(listen_to_browser, ws, bounds)
 
 
 async def main():
@@ -83,7 +85,7 @@ async def main():
     logger.setLevel(logging.DEBUG)
     bus_ws_handler = functools.partial(
         serve_websocket,
-        handler=talk_to_bus,
+        handler=listen_to_bus,
         host='127.0.0.1',
         port=8080,
         ssl_context=None

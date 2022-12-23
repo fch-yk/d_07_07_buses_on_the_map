@@ -80,9 +80,9 @@ async def fake_buses(
     buses_per_route,
     websockets_number,
     emulator_id,
-    refresh_timeout
+    refresh_timeout,
+    routes_path
 ):
-    directory_path = 'routes1'
     websockets = []
     try:
         async with trio.open_nursery() as nursery:
@@ -97,7 +97,7 @@ async def fake_buses(
                 )
 
             for run_routes_number, route in enumerate(
-                load_routes(directory_path),
+                load_routes(routes_path),
                 start=1
             ):
                 basic_coordinates = route['coordinates']
@@ -181,6 +181,12 @@ async def fake_buses(
     default=False,
     help='Verbose mode (logging), default: off'
 )
+@click.option(
+    '-rp',
+    '--routes_path',
+    default='routes',
+    help='A path to the folder containg JSON files of routes, default: routes'
+)
 async def main(
     server,
     routes_number,
@@ -188,7 +194,8 @@ async def main(
     websockets_number,
     emulator_id,
     refresh_timeout,
-    verbose
+    verbose,
+    routes_path
 ):
     '''This script fakes buses'''
     if verbose:
@@ -202,6 +209,7 @@ async def main(
             websockets_number,
             emulator_id,
             refresh_timeout,
+            routes_path,
         )
 
 
