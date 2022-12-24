@@ -8,11 +8,14 @@ import random
 import sys
 import uuid
 import warnings
+from dataclasses import asdict
 
 import asyncclick as click
 import trio
 import trio_websocket
 from trio import TrioDeprecationWarning
+
+from server import Bus
 
 logger = logging.getLogger(__file__)
 
@@ -62,13 +65,8 @@ async def run_bus(
 ):
     while True:
         for latitude, longitude in coordinates:
-            output_message = {
-                'busId': bus_id,
-                'lat': latitude,
-                'lng': longitude,
-                'route': route_name
-            }
-            output_message = json.dumps(output_message, ensure_ascii=False)
+            bus = Bus(bus_id, latitude, longitude, route_name)
+            output_message = json.dumps(asdict(bus), ensure_ascii=False)
 
             await send_channel.send(output_message)
             await trio.sleep(refresh_timeout)

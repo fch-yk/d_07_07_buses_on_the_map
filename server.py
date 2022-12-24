@@ -3,18 +3,35 @@ import functools
 import json
 import logging
 import warnings
+from dataclasses import asdict, dataclass
 
 import trio
 from trio import TrioDeprecationWarning
 from trio_websocket import ConnectionClosed, serve_websocket
 
+
+@dataclass
+class Bus:
+    busId: str  # noqa: N815
+    lat: float
+    lng: float
+    route: str
+
+
+@dataclass
+class WindowBounds:
+    south_lat: float
+    north_lat: float
+    west_lng: float
+    east_lng: float
+
+    def is_inside(self, bus):
+        return (self.south_lat <= bus.lat <= self.north_lat and
+                self.west_lng <= bus.lng <= self.east_lng)
+
+
 logger = logging.getLogger(__file__)
 buses: dict = {}
-
-
-def is_inside(bounds, lat, lng):
-    return (bounds['south_lat'] <= lat <= bounds['north_lat'] and
-            bounds['west_lng'] <= lng <= bounds['east_lng'])
 
 
 async def listen_to_bus(request):
@@ -23,18 +40,14 @@ async def listen_to_bus(request):
         try:
             message = await ws.get_message()
             message = json.loads(message)
-            buses[message['busId']] = message
+            buses[message['busId']] = Bus(**message)
         except ConnectionClosed:
             break
 
 
 async def send_buses(ws, bounds):
     buses_inside_bounds = [
-        bus for bus in buses.values() if is_inside(
-            bounds,
-            bus['lat'],
-            bus['lng']
-        )
+        asdict(bus) for bus in buses.values() if bounds.is_inside(bus)
     ]
     logger.debug('buses inside bounds: %s', len(buses_inside_bounds))
     output_message = {
@@ -59,8 +72,8 @@ async def listen_to_browser(ws, bounds):
         try:
             input_message = await ws.get_message()
             received_bounds = json.loads(input_message)['data']
-            for key in received_bounds:
-                bounds[key] = received_bounds[key]
+            bounds = WindowBounds(**received_bounds)
+
             logger.debug(bounds)
             await send_buses(ws, bounds)
         except ConnectionClosed:
@@ -68,12 +81,7 @@ async def listen_to_browser(ws, bounds):
 
 
 async def communicate_with_browser(request):
-    bounds = {
-        'south_lat': 0,
-        'north_lat': 0,
-        'west_lng': 0,
-        'east_lng': 0,
-    }
+    bounds = WindowBounds(0, 0, 0, 0)
     ws = await request.accept()
     async with trio.open_nursery() as nursery:
         # nursery.start_soon(talk_to_browser, ws, bounds)
