@@ -29,6 +29,12 @@ class WindowBounds:
         return (self.south_lat <= bus.lat <= self.north_lat and
                 self.west_lng <= bus.lng <= self.east_lng)
 
+    def update(self, south_lat, north_lat, west_lng, east_lng):
+        self.south_lat = south_lat
+        self.north_lat = north_lat
+        self.west_lng = west_lng
+        self.east_lng = east_lng
+
 
 logger = logging.getLogger(__file__)
 buses: dict = {}
@@ -62,20 +68,29 @@ async def talk_to_browser(ws, bounds):
     while True:
         try:
             await send_buses(ws, bounds)
-            await trio.sleep(3)
+            await trio.sleep(1)
         except ConnectionClosed:
             break
 
 
 async def listen_to_browser(ws, bounds):
+    '''
+    Receives bounds of the window from a browser.
+    Modifies "bounds" argument in order the "talk_to_browser" function can
+    see the updated bounds
+    '''
     while True:
         try:
             input_message = await ws.get_message()
             received_bounds = json.loads(input_message)['data']
-            bounds = WindowBounds(**received_bounds)
+            bounds.update(
+                received_bounds['south_lat'],
+                received_bounds['north_lat'],
+                received_bounds['west_lng'],
+                received_bounds['east_lng'],
+            )
 
             logger.debug(bounds)
-            await send_buses(ws, bounds)
         except ConnectionClosed:
             break
 
@@ -84,7 +99,7 @@ async def communicate_with_browser(request):
     bounds = WindowBounds(0, 0, 0, 0)
     ws = await request.accept()
     async with trio.open_nursery() as nursery:
-        # nursery.start_soon(talk_to_browser, ws, bounds)
+        nursery.start_soon(talk_to_browser, ws, bounds)
         nursery.start_soon(listen_to_browser, ws, bounds)
 
 
