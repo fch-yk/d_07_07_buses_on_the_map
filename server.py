@@ -5,6 +5,7 @@ import logging
 import warnings
 from dataclasses import asdict, dataclass
 
+import asyncclick as click
 import trio
 from trio import TrioDeprecationWarning
 from trio_websocket import ConnectionClosed, serve_websocket
@@ -103,21 +104,50 @@ async def communicate_with_browser(request):
         nursery.start_soon(listen_to_browser, ws, bounds)
 
 
-async def main():
-    logging.basicConfig()
-    logger.setLevel(logging.DEBUG)
+@click.command()
+@click.option(
+    '-s',
+    '--server',
+    default='127.0.0.1',
+    help='Server address, default: 127.0.0.1'
+)
+@click.option(
+    '-bup',
+    '--bus_port',
+    type=click.INT,
+    default=8080,
+    help='Bus port, default: 8080'
+)
+@click.option(
+    '-brp',
+    '--browser_port',
+    type=click.INT,
+    default=8000,
+    help='Browser port, default: 8000'
+)
+@click.option(
+    '-v/-nov',
+    '--verbose/--no_verbose',
+    default=False,
+    help='Verbose mode (logging), default: off'
+)
+async def main(server, bus_port, browser_port, verbose):
+    '''This script serves movement of buses on the map'''
+    if verbose:
+        logging.basicConfig()
+        logger.setLevel(logging.DEBUG)
     bus_ws_handler = functools.partial(
         serve_websocket,
         handler=listen_to_bus,
-        host='127.0.0.1',
-        port=8080,
+        host=server,
+        port=bus_port,
         ssl_context=None
     )
     browser_ws_handler = functools.partial(
         serve_websocket,
         handler=communicate_with_browser,
-        host='127.0.0.1',
-        port=8000,
+        host=server,
+        port=browser_port,
         ssl_context=None
     )
 
@@ -129,4 +159,4 @@ async def main():
 if __name__ == '__main__':
     warnings.filterwarnings(action='ignore', category=TrioDeprecationWarning)
     with contextlib.suppress(KeyboardInterrupt):
-        trio.run(main)
+        main(_anyio_backend="trio")
