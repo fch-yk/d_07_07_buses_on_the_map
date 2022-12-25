@@ -21,10 +21,11 @@ class Bus:
 
 @dataclass
 class WindowBounds:
-    south_lat: float
-    north_lat: float
-    west_lng: float
-    east_lng: float
+    south_lat: float = 0
+    north_lat: float = 0
+    west_lng: float = 0
+    east_lng: float = 0
+    errors: None = None
 
     def is_inside(self, bus):
         return (self.south_lat <= bus.lat <= self.north_lat and
@@ -35,6 +36,22 @@ class WindowBounds:
         self.north_lat = north_lat
         self.west_lng = west_lng
         self.east_lng = east_lng
+
+    def validate(self, message):
+        message_card = json.loads(message)
+        errors = ['Requires msgType specified']
+        if not isinstance(message_card, dict):
+            self.errors = errors
+            return None
+
+        msg_type = message_card.get('msgType')
+        if not msg_type == 'newBounds':
+            self.errors = errors
+
+        return message_card
+
+    def set_invalid_json_error(self):
+        self.errors = ['Requires valid JSON']
 
 
 logger = logging.getLogger(__file__)
@@ -53,14 +70,17 @@ async def communicate_to_bus(request):
 
 
 async def send_buses(ws, bounds):
-    buses_inside_bounds = [
-        asdict(bus) for bus in buses.values() if bounds.is_inside(bus)
-    ]
-    logger.debug('buses inside bounds: %s', len(buses_inside_bounds))
-    output_message = {
-        'msgType': 'Buses',
-        'buses': buses_inside_bounds
-    }
+    if bounds.errors:
+        output_message = {'errors': bounds.errors, 'msgType': 'Errors'}
+    else:
+        buses_inside_bounds = [
+            asdict(bus) for bus in buses.values() if bounds.is_inside(bus)
+        ]
+        logger.debug('buses inside bounds: %s', len(buses_inside_bounds))
+        output_message = {
+            'msgType': 'Buses',
+            'buses': buses_inside_bounds
+        }
     output_message = json.dumps(output_message, ensure_ascii=False)
     await ws.send_message(output_message)
 
@@ -74,16 +94,19 @@ async def talk_to_browser(ws, bounds, refresh_timeout):
             break
 
 
-async def listen_to_browser(ws, bounds):
+async def listen_to_browser(ws, bounds: WindowBounds):
     '''
     Receives bounds of the window from a browser.
-    Modifies "bounds" argument in order the "talk_to_browser" function can
-    see the updated bounds
+    Modifies "bounds" argument in order to pass it to "talk_to_browser"
+    function
     '''
     while True:
         try:
             input_message = await ws.get_message()
-            received_bounds = json.loads(input_message)['data']
+            message_card = bounds.validate(input_message)
+            if bounds.errors:
+                continue
+            received_bounds = message_card['data']
             bounds.update(
                 received_bounds['south_lat'],
                 received_bounds['north_lat'],
@@ -94,14 +117,16 @@ async def listen_to_browser(ws, bounds):
             logger.debug(bounds)
         except ConnectionClosed:
             break
+        except json.decoder.JSONDecodeError:
+            bounds.set_invalid_json_error()
 
 
 async def communicate_with_browser(request, refresh_timeout):
-    bounds = WindowBounds(0, 0, 0, 0)
+    bounds = WindowBounds()
     ws = await request.accept()
     async with trio.open_nursery() as nursery:
-        nursery.start_soon(talk_to_browser, ws, bounds, refresh_timeout)
         nursery.start_soon(listen_to_browser, ws, bounds)
+        nursery.start_soon(talk_to_browser, ws, bounds, refresh_timeout)
 
 
 @click.command()

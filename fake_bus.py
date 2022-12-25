@@ -136,7 +136,7 @@ async def fake_buses(
     '-s',
     '--server',
     default='ws://127.0.0.1:8080/',
-    help='Server address, default: ws: // 127.0.0.1: 8080 /'
+    help='Server address, default: ws://127.0.0.1:8080/'
 )
 @click.option(
     '-rn',
