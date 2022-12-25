@@ -41,7 +41,7 @@ logger = logging.getLogger(__file__)
 buses: dict = {}
 
 
-async def listen_to_bus(request):
+async def communicate_to_bus(request):
     ws = await request.accept()
     while True:
         try:
@@ -65,11 +65,11 @@ async def send_buses(ws, bounds):
     await ws.send_message(output_message)
 
 
-async def talk_to_browser(ws, bounds):
+async def talk_to_browser(ws, bounds, refresh_timeout):
     while True:
         try:
             await send_buses(ws, bounds)
-            await trio.sleep(1)
+            await trio.sleep(refresh_timeout)
         except ConnectionClosed:
             break
 
@@ -96,11 +96,11 @@ async def listen_to_browser(ws, bounds):
             break
 
 
-async def communicate_with_browser(request):
+async def communicate_with_browser(request, refresh_timeout):
     bounds = WindowBounds(0, 0, 0, 0)
     ws = await request.accept()
     async with trio.open_nursery() as nursery:
-        nursery.start_soon(talk_to_browser, ws, bounds)
+        nursery.start_soon(talk_to_browser, ws, bounds, refresh_timeout)
         nursery.start_soon(listen_to_browser, ws, bounds)
 
 
@@ -131,21 +131,33 @@ async def communicate_with_browser(request):
     default=False,
     help='Verbose mode (logging), default: off'
 )
-async def main(server, bus_port, browser_port, verbose):
+@click.option(
+    '-rt',
+    '--refresh_timeout',
+    type=click.FLOAT,
+    default=1,
+    help='Refresh timeout, default: 1'
+)
+async def main(server, bus_port, browser_port, verbose, refresh_timeout):
     '''This script serves movement of buses on the map'''
     if verbose:
         logging.basicConfig()
         logger.setLevel(logging.DEBUG)
+
     bus_ws_handler = functools.partial(
         serve_websocket,
-        handler=listen_to_bus,
+        handler=communicate_to_bus,
         host=server,
         port=bus_port,
         ssl_context=None
     )
+    communicate_with_browser_handler = functools.partial(
+        communicate_with_browser,
+        refresh_timeout=refresh_timeout
+    )
     browser_ws_handler = functools.partial(
         serve_websocket,
-        handler=communicate_with_browser,
+        handler=communicate_with_browser_handler,
         host=server,
         port=browser_port,
         ssl_context=None
