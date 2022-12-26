@@ -18,6 +18,19 @@ class Bus:
     lng: float
     route: str
 
+    @staticmethod
+    def validate(message):
+        bus_card = json.loads(message)
+        errors = ['Requires busId specified']
+        if not isinstance(bus_card, dict):
+            return None, errors
+
+        bus_id = bus_card.get('busId')
+        if not bus_id:
+            return None, errors
+
+        return bus_card, None
+
 
 @dataclass
 class WindowBounds:
@@ -58,29 +71,43 @@ logger = logging.getLogger(__file__)
 buses: dict = {}
 
 
-async def communicate_to_bus(request):
+async def send_errors_message(ws, errors):
+    output_message = {'errors': errors, 'msgType': 'Errors'}
+    output_message = json.dumps(output_message, ensure_ascii=False)
+    await ws.send_message(output_message)
+
+
+async def communicate_with_bus(request):
     ws = await request.accept()
     while True:
         try:
             message = await ws.get_message()
-            message = json.loads(message)
-            buses[message['busId']] = Bus(**message)
+            bus_card, errors = Bus.validate(message)
+            if errors:
+                await trio.sleep(3)
+                await send_errors_message(ws, errors)
+                continue
+
+            buses[bus_card['busId']] = Bus(**bus_card)
         except ConnectionClosed:
             break
+        except json.decoder.JSONDecodeError:
+            await send_errors_message(ws, ['Requires valid JSON'])
 
 
 async def send_buses(ws, bounds):
     if bounds.errors:
-        output_message = {'errors': bounds.errors, 'msgType': 'Errors'}
-    else:
-        buses_inside_bounds = [
-            asdict(bus) for bus in buses.values() if bounds.is_inside(bus)
-        ]
-        logger.debug('buses inside bounds: %s', len(buses_inside_bounds))
-        output_message = {
-            'msgType': 'Buses',
-            'buses': buses_inside_bounds
-        }
+        await send_errors_message(ws, bounds.errors)
+        return
+
+    buses_inside_bounds = [
+        asdict(bus) for bus in buses.values() if bounds.is_inside(bus)
+    ]
+    logger.debug('buses inside bounds: %s', len(buses_inside_bounds))
+    output_message = {
+        'msgType': 'Buses',
+        'buses': buses_inside_bounds
+    }
     output_message = json.dumps(output_message, ensure_ascii=False)
     await ws.send_message(output_message)
 
@@ -171,7 +198,7 @@ async def main(server, bus_port, browser_port, verbose, refresh_timeout):
 
     bus_ws_handler = functools.partial(
         serve_websocket,
-        handler=communicate_to_bus,
+        handler=communicate_with_bus,
         host=server,
         port=bus_port,
         ssl_context=None
