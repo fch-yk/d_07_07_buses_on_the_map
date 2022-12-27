@@ -153,7 +153,7 @@ async def fake_buses(
     help='Number of buses per route, default: 5'
 )
 @click.option(
-    '-bpr',
+    '-wn',
     '--websockets_number',
     type=click.INT,
     default=5,
@@ -183,7 +183,7 @@ async def fake_buses(
     '-rp',
     '--routes_path',
     default='routes',
-    help='A path to the folder containg JSON files of routes, default: routes'
+    help='A path to the folder containing JSON files of routes, default: routes'
 )
 async def main(
     server,
