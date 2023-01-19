@@ -10,6 +10,9 @@ import trio
 from trio import TrioDeprecationWarning
 from trio_websocket import ConnectionClosed, serve_websocket
 
+logger = logging.getLogger(__file__)
+buses: dict = {}
+
 
 @dataclass
 class Bus:
@@ -65,10 +68,6 @@ class WindowBounds:
 
     def set_invalid_json_error(self):
         self.errors = ['Requires valid JSON']
-
-
-logger = logging.getLogger(__file__)
-buses: dict = {}
 
 
 async def send_errors_message(ws, errors):
