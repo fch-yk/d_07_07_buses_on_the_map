@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import random
-import sys
 import uuid
 import warnings
 from dataclasses import asdict
@@ -128,7 +127,7 @@ async def fake_buses(
                     break
             logger.debug(f'Run routes number: {run_routes_number}')
     except OSError as ose:
-        print(f'Connection attempt failed: {ose}', file=sys.stderr)
+        logger.debug('System-related error: %s', ose)
 
 
 @click.command()
@@ -183,7 +182,8 @@ async def fake_buses(
     '-rp',
     '--routes_path',
     default='routes',
-    help='A path to the folder containing JSON files of routes, default: routes'
+    help='A path to the folder containing JSON files of routes, '
+    'default: routes',
 )
 async def main(
     server,
