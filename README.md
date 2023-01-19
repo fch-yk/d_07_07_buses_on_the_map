@@ -32,7 +32,7 @@ python server.py
 - Run the bus emulator:
 
 ```bash
-python python fake_bus.py
+python fake_bus.py
 ```
 
 - You will see the movement of buses on the map in the browser window.
